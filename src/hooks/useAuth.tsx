@@ -1,5 +1,6 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { useState, useEffect, createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
+import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
@@ -18,20 +19,120 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
+    let isProcessingHash = false;
+
+    // Handle auth callback from URL hash FIRST (before anything else)
+    const handleHashAuth = async () => {
+      const hash = window.location.hash;
+      if (hash?.includes('access_token')) {
+        isProcessingHash = true;
+        console.log('Processing auth hash fragment...', hash.substring(0, 50) + '...');
+        
+        // Parse hash to get tokens
+        const hashParams = new URLSearchParams(hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const errorParam = hashParams.get('error');
+        const errorDescription = hashParams.get('error_description');
+        
+        // Check for errors in hash
+        if (errorParam) {
+          console.error('Auth error in hash:', errorParam, errorDescription);
+          setLoading(false);
+          // Clean URL hash
+          window.history.replaceState(null, '', window.location.pathname);
+          return;
+        }
+        
+        if (accessToken) {
+          try {
+            console.log('Setting session from hash tokens...');
+            // Set session manually from hash tokens
+            const { data: { session }, error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || '',
+            });
+            
+            if (error) {
+              console.error('Error setting session from hash:', error);
+              setLoading(false);
+              // Clean URL hash even on error
+              window.history.replaceState(null, '', window.location.pathname);
+              return;
+            }
+            
+            if (session) {
+              console.log('✅ Session set successfully from hash:', session.user.email);
+              setSession(session);
+              setUser(session.user);
+              setLoading(false);
+              // Redirect to /chat after successful auth
+              const currentPath = window.location.pathname;
+              if (currentPath === '/' || currentPath === '') {
+                // Force navigation to /chat
+                setTimeout(() => {
+                  window.location.href = '/chat';
+                }, 100);
+              } else {
+                // Clean URL hash but stay on current path
+                window.history.replaceState(null, '', currentPath + window.location.search);
+              }
+            } else {
+              console.warn('No session returned from setSession');
+              setLoading(false);
+            }
+          } catch (err) {
+            console.error('Exception processing hash auth:', err);
+            setLoading(false);
+            // Clean URL hash on exception
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } else {
+          console.warn('No access_token found in hash');
+          setLoading(false);
+        }
+      }
+    };
+
+    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+        console.log('Auth state changed:', event, session?.user?.email ?? 'no user');
+        
+        // Only update state if we're not currently processing hash
+        // This prevents race conditions
+        if (!isProcessingHash || event !== 'SIGNED_IN') {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+        
+        // Clean hash after successful sign in and redirect to /chat if on root
+        if (event === 'SIGNED_IN' && window.location.hash) {
+          const currentPath = window.location.pathname;
+          if (currentPath === '/' || currentPath === '') {
+            // Force navigation to /chat
+            setTimeout(() => {
+              window.location.href = '/chat';
+            }, 100);
+          } else {
+            // Clean URL hash but stay on current path
+            window.history.replaceState(null, '', currentPath + window.location.search);
+          }
+        }
       }
     );
 
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+    // Process hash FIRST, then check for existing session
+    handleHashAuth().then(() => {
+      // Only check for existing session if we didn't process a hash
+      if (!isProcessingHash) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        });
+      }
     });
 
     return () => subscription.unsubscribe();

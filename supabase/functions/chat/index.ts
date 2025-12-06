@@ -136,6 +136,9 @@ async function fetchPlaceReviews(dataId: string): Promise<any[]> {
     const reviewsResponse = await fetch(reviewsUrl);
     if (!reviewsResponse.ok) {
       console.error('SerpAPI reviews error:', reviewsResponse.status);
+      if (reviewsResponse.status === 429) {
+        throw new Error('SERPAPI_RATE_LIMIT');
+      }
       return [];
     }
 
