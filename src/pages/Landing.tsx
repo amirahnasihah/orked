@@ -68,11 +68,22 @@ export default function Landing() {
     }
     
     const userMsg = DEMO_CONVERSATION[0];
-    if (currentStep >= 1 && typingText.length < userMsg.text.length) {
-      const timer = setTimeout(() => {
-        setTypingText(userMsg.text.slice(0, typingText.length + 1));
-      }, 50);
-      return () => clearTimeout(timer);
+    
+    // Only animate typing when currentStep is exactly 1
+    if (currentStep === 1) {
+      if (typingText.length < userMsg.text.length) {
+        // Continue typing animation
+        const timer = setTimeout(() => {
+          setTypingText(userMsg.text.slice(0, typingText.length + 1));
+        }, 50);
+        return () => clearTimeout(timer);
+      } else if (typingText.length === 0) {
+        // Start typing animation
+        setTypingText(userMsg.text.slice(0, 1));
+      }
+    } else if (currentStep > 1 && typingText.length < userMsg.text.length) {
+      // If step moved forward but text not complete, show full text immediately
+      setTypingText(userMsg.text);
     }
   }, [currentStep, typingText]);
 
